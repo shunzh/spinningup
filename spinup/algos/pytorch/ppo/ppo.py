@@ -85,7 +85,7 @@ class PPOBuffer:
 
 
 
-def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0, 
+def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
         vf_lr=1e-3, train_pi_iters=80, train_v_iters=80, lam=0.97, max_ep_len=1000,
         target_kl=0.01, logger_kwargs=dict(), save_freq=10):
@@ -197,7 +197,8 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Set up logger and save configuration
     logger = EpochLogger(**logger_kwargs)
-    logger.save_config(locals())
+    #fixme can't store a generator
+    #logger.save_config(locals())
 
     # Random seed
     seed += 10000 * proc_id()
@@ -205,7 +206,6 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     np.random.seed(seed)
 
     # Instantiate environment
-    env = env_fn()
     obs_dim = env.observation_space.shape
     act_dim = env.action_space.shape
 
@@ -294,6 +294,9 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     start_time = time.time()
     o, ep_ret, ep_len, ep_true_ret = env.reset(), 0, 0, 0
 
+    max_belief_ret = None
+    max_true_ret = None
+
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         for t in range(local_steps_per_epoch):
@@ -338,6 +341,16 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         # Perform PPO update!
         update()
 
+        # find policy with best performance
+        max_idx = logger.get_arg_max('EpRet')
+        if max_idx is not None:
+            epoch_max_belief_ret = logger.get_values('EpRet')[max_idx]
+            epoch_max_true_ret = logger.get_values('EpTrueRet')[max_idx]
+
+            if max_belief_ret is None or epoch_max_belief_ret > max_belief_ret:
+                max_belief_ret = epoch_max_belief_ret
+                max_true_ret = epoch_max_true_ret
+
         # Log info about epoch
         logger.log_tabular('Epoch', epoch)
         logger.log_tabular('EpRet', with_min_and_max=True)
@@ -355,6 +368,10 @@ def ppo(env_fn, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('StopIter', average_only=True)
         logger.log_tabular('Time', time.time()-start_time)
         logger.dump_tabular()
+
+    assert max_belief_ret is not None
+
+    return max_belief_ret, max_true_ret
     
 
 if __name__ == '__main__':
