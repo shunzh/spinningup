@@ -195,10 +195,14 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Special function to avoid certain slowdowns from PyTorch + MPI combo.
     setup_pytorch_for_mpi()
 
+    # add only training data, otherwise env not serializable! fixme
+    to_store = locals()
+    to_store.pop('env')
+    to_store.update({'train_x': env.train_x.numpy(), 'train_y': env.train_y.numpy(), 'valid_x': env.valid_x.numpy(), 'valid_y': env.valid_y.numpy()})
+
     # Set up logger and save configuration
     logger = EpochLogger(**logger_kwargs)
-    #fixme can't store a generator
-    #logger.save_config(locals())
+    logger.save_config(to_store)
 
     # Random seed
     seed += 10000 * proc_id()
