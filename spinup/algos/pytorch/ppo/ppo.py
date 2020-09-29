@@ -198,7 +198,8 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # add only training data, otherwise env not serializable! fixme
     to_store = locals()
     to_store.pop('env')
-    to_store.update({'train_x': env.train_x.numpy(), 'train_y': env.train_y.numpy(), 'valid_x': env.valid_x.numpy(), 'valid_y': env.valid_y.numpy()})
+    model = env.reward_model
+    to_store.update({'train_x': model.train_inputs[0].numpy(), 'train_y': model.train_targets.numpy()})
 
     # Set up logger and save configuration
     logger = EpochLogger(**logger_kwargs)
