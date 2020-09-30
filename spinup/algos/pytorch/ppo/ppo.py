@@ -1,3 +1,5 @@
+import copy
+
 import numpy as np
 import torch
 from torch.optim import Adam
@@ -26,6 +28,9 @@ class PPOBuffer:
         self.logp_buf = np.zeros(size, dtype=np.float32)
         self.gamma, self.lam = gamma, lam
         self.ptr, self.path_start_idx, self.max_size = 0, 0, size
+
+        # bookkeep slices of paths here
+        self.path_slices = []
 
     def store(self, obs, act, rew, val, logp):
         """
@@ -58,6 +63,8 @@ class PPOBuffer:
         path_slice = slice(self.path_start_idx, self.ptr)
         rews = np.append(self.rew_buf[path_slice], last_val)
         vals = np.append(self.val_buf[path_slice], last_val)
+
+        self.path_slices.append(path_slice)
         
         # the next two lines implement GAE-Lambda advantage calculation
         deltas = rews[:-1] + self.gamma * vals[1:] - vals[:-1]
@@ -76,6 +83,7 @@ class PPOBuffer:
         """
         assert self.ptr == self.max_size    # buffer has to be full before you can get
         self.ptr, self.path_start_idx = 0, 0
+        self.path_slices = []
         # the next two lines implement the advantage normalization trick
         adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / adv_std
@@ -301,6 +309,7 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     max_belief_ret = None
     max_true_ret = None
+    best_pi = None
 
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
@@ -343,10 +352,6 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         if (epoch % save_freq == 0) or (epoch == epochs-1):
             logger.save_state({'env': env}, None)
 
-        # Perform PPO update!
-        update()
-
-        # find policy with best performance
         max_idx = logger.get_arg_max('EpRet')
         if max_idx is not None:
             epoch_max_belief_ret = logger.get_values('EpRet')[max_idx]
@@ -355,6 +360,10 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             if max_belief_ret is None or epoch_max_belief_ret > max_belief_ret:
                 max_belief_ret = epoch_max_belief_ret
                 max_true_ret = epoch_max_true_ret
+                best_pi = buf.obs_buf[buf.path_slices[max_idx]]
+
+        # Perform PPO update!
+        update()
 
         # Log info about epoch
         logger.log_tabular('Epoch', epoch)
@@ -376,7 +385,9 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     assert max_belief_ret is not None
 
-    return max_belief_ret, max_true_ret
+    # return the following information of the best policy under its belief:
+    # its estimated value by GP, its true value, and occupancy
+    return max_belief_ret, max_true_ret, best_pi
     
 
 if __name__ == '__main__':
