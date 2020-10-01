@@ -347,11 +347,11 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     logger.store(EpRet=ep_ret, EpLen=ep_len, EpTrueRet=ep_true_ret)
                 o, ep_ret, ep_len, ep_true_ret = env.reset(), 0, 0, 0
 
-
         # Save model
         if (epoch % save_freq == 0) or (epoch == epochs-1):
             logger.save_state({'env': env}, None)
 
+        # save the stats
         max_idx = logger.get_arg_max('EpRet')
         if max_idx is not None:
             epoch_max_belief_ret = logger.get_values('EpRet')[max_idx]
@@ -360,7 +360,7 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             if max_belief_ret is None or epoch_max_belief_ret > max_belief_ret:
                 max_belief_ret = epoch_max_belief_ret
                 max_true_ret = epoch_max_true_ret
-                best_pi = buf.obs_buf[buf.path_slices[max_idx]]
+                best_pi = copy.deepcopy(buf.obs_buf[buf.path_slices[max_idx]])
 
         # Perform PPO update!
         update()
