@@ -94,9 +94,9 @@ class PPOBuffer:
 
 
 def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
-        steps_per_epoch=4000, epochs=50, gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
+        steps_per_epoch=4000, epochs=50, gamma=0.99, eval_gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
         vf_lr=1e-3, train_pi_iters=80, train_v_iters=80, lam=0.97, max_ep_len=1000,
-        target_kl=0.01, logger_kwargs=dict(), save_freq=10):
+        target_kl=0.01, logger_kwargs=dict(), save_freq=10, plot_file=None):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -313,14 +313,16 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
+        discounter = 1
         for t in range(local_steps_per_epoch):
             a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            discounter *= eval_gamma
 
             next_o, r, d, info = env.step(a)
-            ep_ret += r
+            ep_ret += discounter * r
             ep_len += 1
             if 'true_reward' in info.keys():
-                ep_true_ret += info['true_reward']
+                ep_true_ret += discounter * info['true_reward']
 
             # save and log
             buf.store(o, a, r, v, logp)
@@ -361,6 +363,9 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                 max_belief_ret = epoch_max_belief_ret
                 max_true_ret = epoch_max_true_ret
                 best_pi = copy.deepcopy(buf.obs_buf[buf.path_slices[max_idx]])
+
+                if plot_file:
+                    env.plot_reward_and_policy(file_postfix=plot_file, policy=best_pi)
 
         # Perform PPO update!
         update()
