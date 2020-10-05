@@ -13,6 +13,8 @@ import tensorflow as tf
 import torch
 import os.path as osp, time, atexit, os
 import warnings
+
+from plotUtils import plot_data_points
 from spinup.utils.mpi_tools import proc_id, mpi_statistics_scalar
 from spinup.utils.serialization_utils import convert_json
 
@@ -111,6 +113,9 @@ class Logger:
         self.log_headers = []
         self.log_current_row = {}
         self.exp_name = exp_name
+
+        # store previous rows
+        self.all_rows = []
 
     def log(self, msg, color='green'):
         """Print a colorized message to stdout."""
@@ -297,8 +302,24 @@ class Logger:
                     self.output_file.write("\t".join(self.log_headers)+"\n")
                 self.output_file.write("\t".join(map(str,vals))+"\n")
                 self.output_file.flush()
-        self.log_current_row.clear()
+
+        self.all_rows.append(self.log_current_row)
+        self.log_current_row = {}
         self.first_row=False
+
+    def plot(self, key, plot_file):
+        """
+        Plot data in the previous row
+        :param key:
+        :return:
+        """
+        assert all(key in row.keys() for row in self.all_rows), 'missing ' + key + ' in previous rows'
+        data = [row[key] for row in self.all_rows]
+
+        xs = range(len(self.all_rows))
+
+        plot_data_points(xs, data, 'Epochs', key, plot_file)
+
 
 class EpochLogger(Logger):
     """

@@ -90,7 +90,7 @@ class PPOBuffer:
 def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, eval_gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
         vf_lr=1e-3, train_pi_iters=80, train_v_iters=80, lam=0.97, max_ep_len=1000,
-        target_kl=0.01, logger_kwargs=dict(), save_freq=10, entr_weight=1e-2):
+        target_kl=0.01, logger_kwargs=dict(), save_freq=10, entr_weight=1e-1):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -294,7 +294,8 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # Log changes from update
         kl, ent, cf = pi_info['kl'], pi_info_old['ent'], pi_info['cf']
-        logger.store(LossPi=pi_l_old, LossV=v_l_old,
+        # flip the sign of LossPi?
+        logger.store(LossPi=-pi_l_old, LossV=v_l_old,
                      KL=kl, Entropy=ent, ClipFrac=cf,
                      DeltaLossPi=(loss_pi.item() - pi_l_old),
                      DeltaLossV=(loss_v.item() - v_l_old))
@@ -366,6 +367,9 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('Time', time.time()-start_time)
         logger.dump_tabular()
 
+        for key in ['AverageEpRet', 'LossPi', 'LossV', 'Entropy']:
+            logger.plot(key=key, plot_file=key)
+
     # return the final policy
     return ac.pi
 
@@ -382,7 +386,7 @@ def sample_greedy_pi(pi: core.MLPGaussianActor, env, max_ep_len=1000, plot_file=
         while time < max_ep_len:
             # use the mode of the action
             # mu_net needs tensor input
-            act = pi.mu_net(torch.Tensor(obs)).numpy()
+            act = pi.mu_net(torch.as_tensor(obs, dtype=torch.float32)).numpy()
 
             obs, r, d, info = env.step(act)
             traj.append(obs)
@@ -400,6 +404,7 @@ def sample_greedy_pi(pi: core.MLPGaussianActor, env, max_ep_len=1000, plot_file=
             env.plot_reward_and_policy(file_postfix=plot_file, policy=traj)
 
         return traj, belief_ret, true_ret
+
 
 if __name__ == '__main__':
     import argparse
