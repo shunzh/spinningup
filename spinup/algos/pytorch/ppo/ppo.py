@@ -90,7 +90,7 @@ class PPOBuffer:
 def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, eval_gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
         vf_lr=1e-3, train_pi_iters=80, train_v_iters=80, lam=0.97, max_ep_len=1000,
-        target_kl=0.01, logger_kwargs=dict(), save_freq=10, entr_weight=1e-1):
+        target_kl=0.01, logger_kwargs=dict(), save_freq=10, entr_weight=1e-1, plot_file=None):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -294,8 +294,7 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # Log changes from update
         kl, ent, cf = pi_info['kl'], pi_info_old['ent'], pi_info['cf']
-        # flip the sign of LossPi?
-        logger.store(LossPi=-pi_l_old, LossV=v_l_old,
+        logger.store(LossPi=pi_l_old, LossV=v_l_old,
                      KL=kl, Entropy=ent, ClipFrac=cf,
                      DeltaLossPi=(loss_pi.item() - pi_l_old),
                      DeltaLossV=(loss_v.item() - v_l_old))
@@ -370,8 +369,9 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         for key in ['AverageEpRet', 'LossPi', 'LossV', 'Entropy']:
             logger.plot(key=key, plot_file=key)
 
-    # return the final policy
-    return ac.pi
+        traj, traj_belief_ret, traj_true_ret = sample_greedy_pi(ac.pi, env, max_ep_len=max_ep_len, plot_file=plot_file)
+
+    return traj, traj_belief_ret, traj_true_ret
 
 
 def sample_greedy_pi(pi: core.MLPGaussianActor, env, max_ep_len=1000, plot_file=None):
