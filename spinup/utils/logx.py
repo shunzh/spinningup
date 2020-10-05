@@ -374,16 +374,6 @@ class EpochLogger(Logger):
                 super().log_tabular('Min'+key, stats[2])
         self.epoch_dict[key] = []
 
-    def get_arg_max(self, key):
-        """
-        Get the arg max of a key. Return None if empty
-        """
-        v = self.epoch_dict[key]
-        if len(v) > 0:
-            return np.argmax(v)
-        else:
-            return None
-
     def get_values(self, key):
         return self.epoch_dict[key]
 

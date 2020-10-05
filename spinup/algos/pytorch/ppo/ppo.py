@@ -29,9 +29,6 @@ class PPOBuffer:
         self.gamma, self.lam = gamma, lam
         self.ptr, self.path_start_idx, self.max_size = 0, 0, size
 
-        # bookkeep slices of paths here
-        self.path_slices = []
-
     def store(self, obs, act, rew, val, logp):
         """
         Append one timestep of agent-environment interaction to the buffer.
@@ -64,8 +61,6 @@ class PPOBuffer:
         rews = np.append(self.rew_buf[path_slice], last_val)
         vals = np.append(self.val_buf[path_slice], last_val)
 
-        self.path_slices.append(path_slice)
-        
         # the next two lines implement GAE-Lambda advantage calculation
         deltas = rews[:-1] + self.gamma * vals[1:] - vals[:-1]
         self.adv_buf[path_slice] = core.discount_cumsum(deltas, self.gamma * self.lam)
@@ -83,7 +78,6 @@ class PPOBuffer:
         """
         assert self.ptr == self.max_size    # buffer has to be full before you can get
         self.ptr, self.path_start_idx = 0, 0
-        self.path_slices = []
         # the next two lines implement the advantage normalization trick
         adv_mean, adv_std = mpi_statistics_scalar(self.adv_buf)
         self.adv_buf = (self.adv_buf - adv_mean) / adv_std
@@ -96,7 +90,7 @@ class PPOBuffer:
 def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         steps_per_epoch=4000, epochs=50, gamma=0.99, eval_gamma=0.99, clip_ratio=0.2, pi_lr=3e-4,
         vf_lr=1e-3, train_pi_iters=80, train_v_iters=80, lam=0.97, max_ep_len=1000,
-        target_kl=0.01, logger_kwargs=dict(), save_freq=10, plot_file=None):
+        target_kl=0.01, logger_kwargs=dict(), save_freq=10, entr_weight=1e-2):
     """
     Proximal Policy Optimization (by clipping), 
 
@@ -253,6 +247,8 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         clipfrac = torch.as_tensor(clipped, dtype=torch.float32).mean().item()
         pi_info = dict(kl=approx_kl, ent=ent, cf=clipfrac)
 
+        loss_pi -= entr_weight * ent
+
         return loss_pi, pi_info
 
     # Set up function for computing value loss
@@ -307,10 +303,6 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     start_time = time.time()
     o, ep_ret, ep_len, ep_true_ret = env.reset(), 0, 0, 0
 
-    max_belief_ret = None
-    max_true_ret = None
-    best_pi = None
-
     # Main loop: collect experience in env and update/log each epoch
     for epoch in range(epochs):
         discounter = 1
@@ -353,20 +345,6 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         if (epoch % save_freq == 0) or (epoch == epochs-1):
             logger.save_state({'env': env}, None)
 
-        # save the stats
-        max_idx = logger.get_arg_max('EpRet')
-        if max_idx is not None:
-            epoch_max_belief_ret = logger.get_values('EpRet')[max_idx]
-            epoch_max_true_ret = logger.get_values('EpTrueRet')[max_idx]
-
-            if max_belief_ret is None or epoch_max_belief_ret > max_belief_ret:
-                max_belief_ret = epoch_max_belief_ret
-                max_true_ret = epoch_max_true_ret
-                best_pi = copy.deepcopy(buf.obs_buf[buf.path_slices[max_idx]])
-
-                if plot_file:
-                    env.plot_reward_and_policy(file_postfix=plot_file, policy=best_pi)
-
         # Perform PPO update!
         update()
 
@@ -388,12 +366,40 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('Time', time.time()-start_time)
         logger.dump_tabular()
 
-    assert max_belief_ret is not None
+    # return the final policy
+    return ac.pi
 
-    # return the following information of the best policy under its belief:
-    # its estimated value by GP, its true value, and occupancy
-    return max_belief_ret, max_true_ret, best_pi
-    
+
+def sample_greedy_pi(pi: core.MLPGaussianActor, env, max_ep_len=1000, plot_file=None):
+    obs = env.reset()
+    traj = [obs]
+    time = 0
+
+    belief_ret = 0
+    true_ret = 0
+
+    with torch.no_grad():
+        while time < max_ep_len:
+            # use the mode of the action
+            # mu_net needs tensor input
+            act = pi.mu_net(torch.Tensor(obs)).numpy()
+
+            obs, r, d, info = env.step(act)
+            traj.append(obs)
+
+            belief_ret += r
+            true_ret += info['true_reward']
+
+            if d: break
+
+            time += 1
+
+        traj = np.array(traj)
+
+        if plot_file is not None:
+            env.plot_reward_and_policy(file_postfix=plot_file, policy=traj)
+
+        return traj, belief_ret, true_ret
 
 if __name__ == '__main__':
     import argparse
