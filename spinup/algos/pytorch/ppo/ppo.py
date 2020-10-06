@@ -245,7 +245,7 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         ent = pi.entropy().mean().item()
         clipped = ratio.gt(1+clip_ratio) | ratio.lt(1-clip_ratio)
         clipfrac = torch.as_tensor(clipped, dtype=torch.float32).mean().item()
-        pi_info = dict(kl=approx_kl, ent=ent, cf=clipfrac)
+        pi_info = dict(pi_obj=-loss_pi, kl=approx_kl, ent=ent, cf=clipfrac)
 
         loss_pi -= entr_weight * ent
 
@@ -293,8 +293,9 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             vf_optimizer.step()
 
         # Log changes from update
-        kl, ent, cf = pi_info['kl'], pi_info_old['ent'], pi_info['cf']
+        kl, ent, cf, pi_obj = pi_info['kl'], pi_info_old['ent'], pi_info['cf'], pi_info['pi_obj']
         logger.store(LossPi=pi_l_old, LossV=v_l_old,
+                     PiObj=pi_obj,
                      KL=kl, Entropy=ent, ClipFrac=cf,
                      DeltaLossPi=(loss_pi.item() - pi_l_old),
                      DeltaLossV=(loss_v.item() - v_l_old))
@@ -357,6 +358,7 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('TotalEnvInteracts', (epoch+1)*steps_per_epoch)
         logger.log_tabular('LossPi', average_only=True)
         logger.log_tabular('LossV', average_only=True)
+        logger.log_tabular('PiObj', average_only=True)
         logger.log_tabular('DeltaLossPi', average_only=True)
         logger.log_tabular('DeltaLossV', average_only=True)
         logger.log_tabular('Entropy', average_only=True)
@@ -366,7 +368,7 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('Time', time.time()-start_time)
         logger.dump_tabular()
 
-        for key in ['AverageEpRet', 'LossPi', 'LossV', 'Entropy']:
+        for key in ['AverageEpRet', 'PiObj', 'LossV', 'Entropy']:
             logger.plot(key=key, plot_file=key)
 
         traj, traj_belief_ret, traj_true_ret = sample_greedy_pi(ac.pi, env, max_ep_len=max_ep_len, plot_file=plot_file)
