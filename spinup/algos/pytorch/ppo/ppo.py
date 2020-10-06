@@ -369,7 +369,10 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.dump_tabular()
 
         for key in ['AverageEpRet', 'PiObj', 'LossV', 'Entropy']:
-            logger.plot(key=key, plot_file=key)
+            logger.plot(key=key, plot_file=key + '_' + str(seed))
+
+        with torch.no_grad():
+            env.plot_values_and_policy(value_func=lambda obs: ac.v(torch.as_tensor(obs)), file_name='v_values_' + str(seed))
 
         traj, traj_belief_ret, traj_true_ret = sample_greedy_pi(ac.pi, env, max_ep_len=max_ep_len, plot_file=plot_file)
 
