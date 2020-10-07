@@ -217,7 +217,8 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     act_dim = env.action_space.shape
 
     # Create actor-critic module
-    ac = actor_critic(env.observation_space, env.action_space, **ac_kwargs)
+    # added squared terms
+    ac = actor_critic(env.feature_space, env.action_space, **ac_kwargs)
 
     # Sync params across processes
     sync_params(ac)
@@ -233,6 +234,8 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Set up function for computing PPO policy loss
     def compute_loss_pi(data):
         obs, act, adv, logp_old = data['obs'], data['act'], data['adv'], data['logp']
+
+        obs = env.decorate_feat(obs)
 
         # Policy loss
         pi, logp = ac.pi(obs, act)
@@ -254,6 +257,9 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     # Set up function for computing value loss
     def compute_loss_v(data):
         obs, ret = data['obs'], data['ret']
+
+        obs = env.decorate_feat(obs)
+
         return ((ac.v(obs) - ret)**2).mean()
 
     # Set up optimizers for policy and value function
@@ -308,7 +314,7 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
     for epoch in range(epochs):
         discounter = 1
         for t in range(local_steps_per_epoch):
-            a, v, logp = ac.step(torch.as_tensor(o, dtype=torch.float32))
+            a, v, logp = ac.step(torch.as_tensor(env.decorate_feat(o), dtype=torch.float32))
             discounter *= eval_gamma
 
             next_o, r, d, info = env.step(a)
@@ -333,7 +339,7 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
                     print('Warning: trajectory cut off by epoch at %d steps.'%ep_len, flush=True)
                 # if trajectory didn't reach terminal state, bootstrap value target
                 if timeout or epoch_ended:
-                    _, v, _ = ac.step(torch.as_tensor(o, dtype=torch.float32))
+                    _, v, _ = ac.step(torch.as_tensor(env.decorate_feat(o), dtype=torch.float32))
                 else:
                     v = 0
                 buf.finish_path(v)
@@ -368,11 +374,11 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('Time', time.time()-start_time)
         logger.dump_tabular()
 
-        for key in ['AverageEpRet', 'PiObj', 'LossV', 'Entropy']:
+        for key in ['AverageEpRet', 'PiObj', 'LossPi', 'LossV', 'Entropy']:
             logger.plot(key=key, plot_file=key + '_' + str(seed))
 
         with torch.no_grad():
-            env.plot_values_and_policy(value_func=lambda obs: ac.v(torch.as_tensor(obs)), file_name='v_values_' + str(seed))
+            env.plot_values_and_policy(value_func=lambda obs: ac.v(env.decorate_feat(obs)), file_name='v_values_' + str(seed))
 
         traj, traj_belief_ret, traj_true_ret = sample_greedy_pi(ac.pi, env, max_ep_len=max_ep_len, plot_file=plot_file)
 
@@ -391,7 +397,7 @@ def sample_greedy_pi(pi: core.MLPGaussianActor, env, max_ep_len=1000, plot_file=
         while time < max_ep_len:
             # use the mode of the action
             # mu_net needs tensor input
-            act = pi.mu_net(torch.as_tensor(obs, dtype=torch.float32)).numpy()
+            act = pi.mu_net(env.decorate_feat(obs)).numpy()
 
             obs, r, d, info = env.step(act)
             traj.append(obs)
