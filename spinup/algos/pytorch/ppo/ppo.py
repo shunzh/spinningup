@@ -387,7 +387,11 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
             #env.plot_values_and_policy(value_func=lambda obs: ac.pi(env.decorate_feat(obs), torch.Tensor((-.01, -.01)))[0].entropy().mean().item(),
             #                           file_name='pi_entr_' + str(seed))
 
+        # plot ac exploration
+        env.plot_reward_and_policy(file_postfix=plot_file + '_ac', policy=buf.obs_buf)
+
         traj, traj_belief_ret, traj_true_ret = sample_traj(ac, env, max_ep_len=max_ep_len, plot_file=plot_file)
+
 
     return traj, traj_belief_ret, traj_true_ret
 
@@ -423,11 +427,6 @@ def sample_traj(ac, env, max_ep_len=1000, plot_file=None):
             traj = np.array(traj)
 
             return traj, belief_ret, true_ret
-
-    ac_sampler = lambda obs: ac.step(torch.as_tensor(env.decorate_feat(obs), dtype=torch.float32))[0]
-    traj, _, _ = sample(ac_sampler)
-    if plot_file is not None:
-        env.plot_reward_and_policy(file_postfix=plot_file + '_ac', policy=traj)
 
     greedy_sampler = lambda obs: ac.pi.mu_net(env.decorate_feat(obs)).numpy()
     traj, belief_ret, true_ret = sample(greedy_sampler)
