@@ -256,11 +256,15 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
     # Set up function for computing value loss
     def compute_loss_v(data):
-        obs, ret = data['obs'], data['ret']
+        obs, act, ret = data['obs'], data['act'], data['ret']
 
         obs = env.decorate_feat(obs)
 
-        return ((ac.v(obs) - ret)**2).mean()
+        # fixme save extra computation of pi?
+        pi, logp = ac.pi(obs, act)
+        ent = pi.entropy().mean().item()
+
+        return ((ac.v(obs) - ret - entr_weight * ent)**2).mean()
 
     # Set up optimizers for policy and value function
     pi_optimizer = Adam(ac.pi.parameters(), lr=pi_lr)
@@ -374,48 +378,63 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('Time', time.time()-start_time)
         logger.dump_tabular()
 
-        for key in ['AverageEpRet', 'PiObj', 'LossPi', 'LossV', 'Entropy']:
+        for key in ['AverageEpRet', 'LossPi', 'LossV', 'Entropy']:
             logger.plot(key=key, plot_file=key + '_' + str(seed))
 
         with torch.no_grad():
-            env.plot_values_and_policy(value_func=lambda obs: ac.v(env.decorate_feat(obs)), file_name='v_values_' + str(seed))
+            env.plot_values_and_policy(value_func=lambda obs: ac.v(env.decorate_feat(obs)),
+                                       file_name='v_values_' + str(seed))
+            #env.plot_values_and_policy(value_func=lambda obs: ac.pi(env.decorate_feat(obs), torch.Tensor((-.01, -.01)))[0].entropy().mean().item(),
+            #                           file_name='pi_entr_' + str(seed))
 
-        traj, traj_belief_ret, traj_true_ret = sample_greedy_pi(ac.pi, env, max_ep_len=max_ep_len, plot_file=plot_file)
+        traj, traj_belief_ret, traj_true_ret = sample_traj(ac, env, max_ep_len=max_ep_len, plot_file=plot_file)
 
     return traj, traj_belief_ret, traj_true_ret
 
 
-def sample_greedy_pi(pi: core.MLPGaussianActor, env, max_ep_len=1000, plot_file=None):
-    obs = env.reset()
-    traj = [obs]
-    time = 0
+def sample_traj(ac, env, max_ep_len=1000, plot_file=None):
+    def sample(sample_func):
+        """
+        Generate a trajectory by sampling actions using sample_func
+        :param sample_func: obs -> act
+        """
+        obs = env.reset()
+        traj = [obs]
+        time = 0
 
-    belief_ret = 0
-    true_ret = 0
+        belief_ret = 0
+        true_ret = 0
 
-    with torch.no_grad():
-        while time < max_ep_len:
-            # use the mode of the action
-            # mu_net needs tensor input
-            act = pi.mu_net(env.decorate_feat(obs)).numpy()
+        with torch.no_grad():
+            while time < max_ep_len:
+                # use the mode of the action
+                act = sample_func(obs)
 
-            obs, r, d, info = env.step(act)
-            traj.append(obs)
+                obs, r, d, info = env.step(act)
+                traj.append(obs)
 
-            belief_ret += r
-            true_ret += info['true_reward']
+                belief_ret += r
+                true_ret += info['true_reward']
 
-            if d: break
+                if d: break
 
-            time += 1
+                time += 1
 
-        traj = np.array(traj)
+            traj = np.array(traj)
 
-        if plot_file is not None:
-            env.plot_reward_and_policy(file_postfix=plot_file, policy=traj)
+            return traj, belief_ret, true_ret
 
-        return traj, belief_ret, true_ret
+    ac_sampler = lambda obs: ac.step(torch.as_tensor(env.decorate_feat(obs), dtype=torch.float32))[0]
+    traj, _, _ = sample(ac_sampler)
+    if plot_file is not None:
+        env.plot_reward_and_policy(file_postfix=plot_file + '_ac', policy=traj)
 
+    greedy_sampler = lambda obs: ac.pi.mu_net(env.decorate_feat(obs)).numpy()
+    traj, belief_ret, true_ret = sample(greedy_sampler)
+    if plot_file is not None:
+        env.plot_reward_and_policy(file_postfix=plot_file + '_greedy', policy=traj)
+
+    return traj, belief_ret, true_ret
 
 if __name__ == '__main__':
     import argparse
