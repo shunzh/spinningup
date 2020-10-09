@@ -378,6 +378,7 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('Time', time.time()-start_time)
         logger.dump_tabular()
 
+        """
         for key in ['AverageEpRet', 'LossPi', 'LossV', 'Entropy']:
             logger.plot(key=key, plot_file=key + '_' + str(seed))
 
@@ -389,6 +390,7 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # plot ac exploration
         env.plot_reward_and_policy(file_postfix=plot_file + '_ac', policy=buf.obs_buf)
+        """
 
         traj, traj_belief_ret, traj_true_ret = sample_traj(ac, env, max_ep_len=max_ep_len, plot_file=plot_file)
 
