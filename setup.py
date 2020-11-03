@@ -18,7 +18,7 @@ setup(
         'gym[atari,box2d,classic_control]~=0.15.3',
         'ipython',
         'joblib',
-        'matplotlib==3.1.1',
+        'matplotlib',
         'mpi4py',
         'numpy',
         'pandas',
@@ -27,7 +27,7 @@ setup(
         'scipy',
         'seaborn==0.8.1',
         'tensorflow>=1.8.0,<2.0',
-        'torch',
+        #'torch',
         'tqdm'
     ],
     description="Teaching tools for introducing people to deep RL.",

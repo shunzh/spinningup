@@ -378,7 +378,6 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
         logger.log_tabular('Time', time.time()-start_time)
         logger.dump_tabular()
 
-        """
         for key in ['AverageEpRet', 'LossPi', 'LossV', 'Entropy']:
             logger.plot(key=key, plot_file=key + '_' + str(seed))
 
@@ -390,12 +389,10 @@ def ppo(env, actor_critic=core.MLPActorCritic, ac_kwargs=dict(), seed=0,
 
         # plot ac exploration
         env.plot_reward_and_policy(file_postfix=plot_file + '_ac', policy=buf.obs_buf)
-        """
 
-        traj, traj_belief_ret, traj_true_ret = sample_traj(ac, env, max_ep_len=max_ep_len, plot_file=plot_file)
+        traj, traj_belief_ret = sample_traj(ac, env, max_ep_len=max_ep_len, plot_file=plot_file)
 
-
-    return traj, traj_belief_ret, traj_true_ret
+    return traj, traj_belief_ret
 
 
 def sample_traj(ac, env, max_ep_len=1000, plot_file=None):
@@ -409,7 +406,6 @@ def sample_traj(ac, env, max_ep_len=1000, plot_file=None):
         time = 0
 
         belief_ret = 0
-        true_ret = 0
 
         with torch.no_grad():
             while time < max_ep_len:
@@ -420,7 +416,6 @@ def sample_traj(ac, env, max_ep_len=1000, plot_file=None):
                 traj.append(obs)
 
                 belief_ret += r
-                true_ret += info['true_reward']
 
                 if d: break
 
@@ -428,14 +423,12 @@ def sample_traj(ac, env, max_ep_len=1000, plot_file=None):
 
             traj = np.array(traj)
 
-            return traj, belief_ret, true_ret
+            return traj, belief_ret
 
     greedy_sampler = lambda obs: ac.pi.mu_net(env.decorate_feat(obs)).numpy()
-    traj, belief_ret, true_ret = sample(greedy_sampler)
-    if plot_file is not None:
-        env.plot_reward_and_policy(file_postfix=plot_file + '_greedy', policy=traj)
+    traj, belief_ret = sample(greedy_sampler)
 
-    return traj, belief_ret, true_ret
+    return traj, belief_ret
 
 if __name__ == '__main__':
     import argparse
